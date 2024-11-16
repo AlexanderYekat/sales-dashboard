@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Отключаем все аналитики и метрики Vercel
-  vercelAnalytics: false,
-  speedInsights: false,
-  // Отключаем загрузку внешних скриптов Vercel
+  // Оставляем только необходимые настройки
   async headers() {
     return [
       {
