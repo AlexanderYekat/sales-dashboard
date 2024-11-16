@@ -18,7 +18,7 @@ interface Product {
 
   total: number;
 
-  type: 'sale' | 'cancellation' | 'return';
+  type: OperationType;
 
 }
 
@@ -32,7 +32,7 @@ interface Receipt {
 
   amount: number;
 
-  type: 'sale' | 'cancellation' | 'return';
+  type: OperationType;
 
   products: Product[];
 
@@ -612,7 +612,7 @@ export default function SalesReportDashboard() {
                                       {(dayData.deposits > 0 || dayData.withdrawals > 0) && (
                                         <div className="ml-4 mt-2 text-sm text-gray-500">
                                           {dayData.deposits > 0 && (
-                                            <span className="mr-4">Внесения: {formatMoney(dayData.deposits)}</span>
+                                            <span className="mr-4">Весения: {formatMoney(dayData.deposits)}</span>
                                           )}
                                           {dayData.withdrawals > 0 && (
                                             <span>Выплаты: {formatMoney(dayData.withdrawals)}</span>
