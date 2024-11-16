@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, RefreshCcw, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, RefreshCcw, XCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Papa from 'papaparse';
 
@@ -36,6 +36,8 @@ interface Receipt {
 
   products: Product[];
 
+  state: string;
+
 }
 
 
@@ -50,6 +52,8 @@ interface DayData {
   deposits: number;     // внесения
 
   withdrawals: number;  // выплаты
+
+  invalidOperations: number; // Добавляем поле для недействительных операций
 
   receipts: Receipt[];
 
@@ -160,53 +164,17 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
   };
 
   csvData.forEach(row => {
-    // Пропускаем пустые троки или строки с неполными данными
     if (!row.TRANZDATE || !row.CASHIER) {
-      if (!row.TRANZDATE || !row.CASHIER) {
-        console.log('⚠️ Пропущена строка:', { TRANZDATE: row.TRANZDATE, CASHIER: row.CASHIER });
-        return;
-      }    
       return;
     }
-
-    //console.log('📅 Обработка строки CSV:', {
-    //  исходнаяДата: row.TRANZDATE,
-    //  кассир: row.CASHIER
-    //});    
 
     const date = parseRussianDate(row.TRANZDATE);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const dayKey = formatDateSafe(row.TRANZDATE);
     const cashier = row.CASHIER.trim();
-    
-    //console.log('🔄 Обработка даты:', {
-    //  исходнаяДата: row.TRANZDATE,
-    //  обработаннаяДата: dayKey,
-    //  monthKey
-    //});
-
-    // Определяем тип операции
-    let operationType: OperationType;
-    if (row.TRANZTYPE === '12') {
-      operationType = 'cancellation';
-    } else if (row.CHEQUETYPE === '1') {
-      operationType = 'return';
-    } else if (row.CHEQUETYPE === '4') {
-      operationType = 'deposit';  // внесение
-    } else if (row.CHEQUETYPE === '5') {
-      operationType = 'withdrawal';  // выплата
-    } else {
-      operationType = 'sale';
-    }
-
-    // Добавляем продукт в соответствующий чек
     const amount = parseRussianNumber(row.SUMM);
-    //const price = row.PRICE ? parseRussianNumber(row.PRICE) : 0;
-    //const quantity = row.QUANTITY ? parseRussianNumber(row.QUANTITY) : 0;
 
-    //console.log('ChequeType:', row.CHEQUETYPE, 'Amount:', amount, 'OperationType:', operationType);
-
-    // Инициализируем структуру данных
+    // Инициализируем структуру данных если нужно
     if (!salesData.months[monthKey]) {
       salesData.months[monthKey] = { cashiers: {} };
     }
@@ -225,22 +193,32 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
         returns: 0,
         deposits: 0,
         withdrawals: 0,
+        invalidOperations: 0,
         receipts: []
       };
     }
 
-    // Обновляем суммы в зависимости от типа операции
-    if (operationType === 'deposit') {
-      salesData.months[monthKey].cashiers[cashier].days[dayKey].deposits += amount;
-    } else if (operationType === 'withdrawal') {
-      salesData.months[monthKey].cashiers[cashier].days[dayKey].withdrawals += amount;
+    // Определяем тип операции
+    let operationType: OperationType;
+    if (row.TRANZTYPE === '12') {
+      operationType = 'cancellation';
+    } else if (row.CHEQUETYPE === '1') {
+      operationType = 'return';
+    } else if (row.CHEQUETYPE === '4') {
+      operationType = 'deposit';
+    } else if (row.CHEQUETYPE === '5') {
+      operationType = 'withdrawal';
+    } else {
+      operationType = 'sale';
     }
 
+    // Создаем чек независимо от его состояния
     const receipt: Receipt = {
       id: row.CHEQUENUMBER,
       time: row.TRANZTIME,
       amount: amount,
       type: operationType,
+      state: row.STATE,
       products: [{
         id: row.CODE,
         name: row.NAME,
@@ -251,6 +229,7 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
       }]
     };
 
+    // Добавляем чек в массив, независимо от его состояния
     const existingReceipt = salesData.months[monthKey].cashiers[cashier].days[dayKey].receipts
       .find(r => r.id === receipt.id);
     
@@ -418,22 +397,26 @@ export default function SalesReportDashboard() {
 
   // Функция для подсчёта сумм по продуктам
 
-  const calculateTotals = (products: Product[]) => {
+  const calculateTotals = (products: Product[], state: string) => {
     const totals = products.reduce((totals, product) => {
+      // Для отменённых чеков (state !== '1') считаем в invalidOperations
+      if (state !== '1') {
+        totals.invalidOperations += product.total;
+        return totals;
+      }
+
       if (product.type === 'sale') {
         totals.sales += product.total;
       } else if (product.type === 'cancellation') {
-        totals.sales += product.total; // Вычитаем сторно из продаж
+        totals.sales += product.total;
         totals.cancellations += product.total;
       } else if (product.type === 'return') {
         totals.returns += product.total;
       }
       return totals;
-    }, { sales: 0, cancellations: 0, returns: 0 });
+    }, { sales: 0, cancellations: 0, returns: 0, invalidOperations: 0 });
 
-    // Если сумма продаж стала отрицательной, устанавливаем её в 0
     totals.sales = Math.max(0, totals.sales);
-    
     return totals;
   };
 
@@ -442,21 +425,21 @@ export default function SalesReportDashboard() {
   // Функция для подсчёта сумм по чекам
 
   const calculateReceiptTotals = (receipts: Receipt[]) => {
-
     return receipts.reduce((totals, receipt) => {
+      // Если чек недействительный (state !== '1'), добавляем всю сумму в invalidOperations
+      if (receipt.state !== '1') {
+        //totals.invalidOperations += Math.abs(receipt.amount); // Добавляем Math.abs для корректного подсчета
+        totals.invalidOperations += receipt.amount; // Добавляем Math.abs для корректного подсчета
+        return totals;
+      }
 
-      const receiptTotals = calculateTotals(receipt.products);
-
+      // Для действительных чеков считаем как раньше
+      const receiptTotals = calculateTotals(receipt.products, receipt.state);
       totals.sales += receiptTotals.sales;
-
       totals.cancellations += receiptTotals.cancellations;
-
       totals.returns += receiptTotals.returns;
-
       return totals;
-
-    }, { sales: 0, cancellations: 0, returns: 0 });
-
+    }, { sales: 0, cancellations: 0, returns: 0, invalidOperations: 0 });
   };
 
   const formatMoney = (amount: number) => {
@@ -497,9 +480,23 @@ export default function SalesReportDashboard() {
             );
             const monthTotals = calculateReceiptTotals(allReceipts);
 
+            // Подсчитываем сумму отмен за месяц
+            const invalidOperationsTotal = Object.values(monthData.cashiers).reduce((total, cashier) => {
+              return total + Object.values(cashier.days).reduce((dayTotal, day) => {
+                const dayInvalidTotal = day.receipts.reduce((receiptTotal, receipt) => {
+                  if (receipt.state !== '1') {
+                    //return receiptTotal + Math.abs(receipt.amount);
+                    return receiptTotal + receipt.amount;
+                  }
+                  return receiptTotal;
+                }, 0);
+                return dayTotal + dayInvalidTotal;
+              }, 0);
+            }, 0);
+
             return (
               <div key={monthKey} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                   {renderMetricCard(
                     "Продажи",
                     monthTotals.sales,
@@ -517,6 +514,12 @@ export default function SalesReportDashboard() {
                     monthTotals.returns,
                     <RefreshCcw className="w-6 h-6 text-orange-600" />,
                     "text-orange-600"
+                  )}
+                  {renderMetricCard(
+                    "Отмена",
+                    invalidOperationsTotal,
+                    <AlertCircle className="w-6 h-6 text-gray-600" />,
+                    "text-gray-600"
                   )}
                 </div>
 
@@ -568,6 +571,7 @@ export default function SalesReportDashboard() {
                                   <span className="text-green-600">{formatMoney(cashierTotals.sales)}</span>
                                   <span className="text-red-600">{formatMoney(cashierTotals.cancellations)}</span>
                                   <span className="text-orange-600">{formatMoney(cashierTotals.returns)}</span>
+                                  <span className="text-gray-600">{formatMoney(cashierTotals.invalidOperations)}</span>
                                 </div>
                               </div>
                             </div>
@@ -594,6 +598,7 @@ export default function SalesReportDashboard() {
                                         <span className="text-green-600">{formatMoney(dayTotals.sales)}</span>
                                         <span className="text-red-600">{formatMoney(dayTotals.cancellations)}</span>
                                         <span className="text-orange-600">{formatMoney(dayTotals.returns)}</span>
+                                        <span className="text-gray-600">{formatMoney(dayTotals.invalidOperations)}</span>
                                       </div>
                                     </div>
                                   </div>
@@ -617,12 +622,15 @@ export default function SalesReportDashboard() {
 
                                       {/* Существующий код для чеков */}
                                       {dayData.receipts.map(receipt => {
-                                        const receiptTotals = calculateTotals(receipt.products);
+                                        const receiptTotals = calculateTotals(receipt.products, receipt.state);
+                                        const isInvalid = receipt.state !== '1';
                                         
                                         return (
                                           <div key={receipt.id} className="pl-8">
                                             <div 
-                                              className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                                              className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
+                                                isInvalid ? 'bg-red-50' : ''
+                                              }`}
                                               onClick={() => toggleReceipt(receipt.id)}
                                             >
                                               <div className="flex items-center justify-between">
@@ -632,10 +640,16 @@ export default function SalesReportDashboard() {
                                                     <ChevronRight className="w-6 h-6 text-gray-400" />
                                                   }
                                                   <div>
-                                                    <span className="font-medium">Чек №{receipt.id}</span>
+                                                    <span className={`font-medium ${isInvalid ? 'text-red-700' : ''}`}>
+                                                      Чек №{receipt.id}
+                                                    </span>
                                                     <span className="ml-2 text-gray-500">{receipt.time}</span>
-                                                    <span className="ml-2 px-2 py-1 text-xs rounded-full bg-gray-100">
-                                                      {getReceiptType(receipt.type)}
+                                                    <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                                                      isInvalid 
+                                                        ? 'bg-red-100 text-red-700' 
+                                                        : 'bg-gray-100'
+                                                    }`}>
+                                                      {receipt.state === '1' ? getReceiptType(receipt.type) : 'Отменённый'}
                                                     </span>
                                                     {(receipt.type === 'deposit' || receipt.type === 'withdrawal') && (
                                                       <span className="ml-2 font-medium text-blue-600">
@@ -649,17 +663,24 @@ export default function SalesReportDashboard() {
                                                     <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
                                                     <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
                                                     <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
+                                                    {receipt.state !== '1' && (
+                                                      <span className="text-gray-600">{formatMoney(receiptTotals.invalidOperations)}</span>
+                                                    )}
                                                   </div>
                                                 )}
                                               </div>
                                             </div>
 
-                                            {/* Товаы */}
+                                            {/* Товары в чеке тоже подсветим, если чек отменён */}
                                             {expandedReceipts.includes(receipt.id) && (
-                                              <div className="pl-8 bg-gray-50 p-4 rounded-lg m-4">
+                                              <div className={`pl-8 ${
+                                                isInvalid ? 'bg-red-50' : 'bg-gray-50'
+                                              } p-4 rounded-lg m-4`}>
                                                 <div className="space-y-2">
                                                   {receipt.products.map((product) => (
-                                                    <div key={product.id} className="flex items-center justify-between p-2 bg-white rounded shadow-sm">
+                                                    <div key={product.id} className={`flex items-center justify-between p-2 ${
+                                                      isInvalid ? 'bg-red-50/50' : 'bg-white'
+                                                    } rounded shadow-sm`}>
                                                       <div className="flex-1">
                                                         <span className="font-medium">{product.name}</span>
                                                         <span className="ml-2 text-gray-500">x {product.quantity}</span>
@@ -699,7 +720,7 @@ export default function SalesReportDashboard() {
           })}
         </div>
       ) : (
-        <div>Загрузка данных...</div>
+        <div>Згрузка данных...</div>
       )}
     </div>
   );
