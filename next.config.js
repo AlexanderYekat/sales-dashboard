@@ -1,19 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Оставляем только необходимые настройки
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: "script-src 'self';"
-          }
-        ]
-      }
-    ]
-  }
+  // Если нужны какие-то специфические настройки, добавьте их здесь
 }
 
 module.exports = nextConfig

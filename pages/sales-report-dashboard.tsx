@@ -309,7 +309,7 @@ export default function SalesReportDashboard() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const response = await fetch('/reports2.csv');
+        const response = await fetch('./reports2.csv');
         const csvText = await response.text();
         
         Papa.parse<CsvRow>(csvText, {
