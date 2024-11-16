@@ -47,6 +47,10 @@ interface DayData {
 
   returns: number;
 
+  deposits: number;     // внесения
+
+  withdrawals: number;  // выплаты
+
   receipts: Receipt[];
 
 }
@@ -97,6 +101,8 @@ interface CsvRow {
   SUMM: string;
   SUMMDISCPOS: string;
 }
+
+type OperationType = 'sale' | 'cancellation' | 'return' | 'deposit' | 'withdrawal';
 
 // Функция для преобразования данных CSV в формат SalesData
 const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
@@ -154,7 +160,7 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
   };
 
   csvData.forEach(row => {
-    // Пропускаем пустые строки или строки с неполными данными
+    // Пропускаем пустые троки или строки с неполными данными
     if (!row.TRANZDATE || !row.CASHIER) {
       if (!row.TRANZDATE || !row.CASHIER) {
         console.log('⚠️ Пропущена строка:', { TRANZDATE: row.TRANZDATE, CASHIER: row.CASHIER });
@@ -180,14 +186,15 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
     //});
 
     // Определяем тип операции
-    let operationType: 'sale' | 'cancellation' | 'return';
+    let operationType: OperationType;
     if (row.TRANZTYPE === '12') {
       operationType = 'cancellation';
     } else if (row.CHEQUETYPE === '1') {
       operationType = 'return';
-    } else if (row.CHEQUETYPE === '4' || row.CHEQUETYPE === '5') {
-      // Пропускаем внесения и выплаты
-      return;
+    } else if (row.CHEQUETYPE === '4') {
+      operationType = 'deposit';  // внесение
+    } else if (row.CHEQUETYPE === '5') {
+      operationType = 'withdrawal';  // выплата
     } else {
       operationType = 'sale';
     }
@@ -216,8 +223,17 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
         sales: 0,
         cancellations: 0,
         returns: 0,
+        deposits: 0,
+        withdrawals: 0,
         receipts: []
       };
+    }
+
+    // Обновляем суммы в зависимости от типа операции
+    if (operationType === 'deposit') {
+      salesData.months[monthKey].cashiers[cashier].days[dayKey].deposits += amount;
+    } else if (operationType === 'withdrawal') {
+      salesData.months[monthKey].cashiers[cashier].days[dayKey].withdrawals += amount;
     }
 
     const receipt: Receipt = {
@@ -584,66 +600,85 @@ export default function SalesReportDashboard() {
                                   </div>
 
                                   {/* Чеки */}
-                                  {expandedDays.includes(dayKey) && dayData.receipts.map(receipt => {
-                                    const receiptTotals = calculateTotals(receipt.products);
-                                    
-                                    return (
-                                      <div key={receipt.id} className="pl-8">
-                                        <div 
-                                          className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                          onClick={() => toggleReceipt(receipt.id)}
-                                        >
-                                          <div className="flex items-center justify-between">
-                                            <div className="flex items-center space-x-4">
-                                              {expandedReceipts.includes(receipt.id) ? 
-                                                <ChevronDown className="w-6 h-6 text-gray-400" /> : 
-                                                <ChevronRight className="w-6 h-6 text-gray-400" />
-                                              }
-                                              <div>
-                                                <span className="font-medium">Чек №{receipt.id}</span>
-                                                <span className="ml-2 text-gray-500">{receipt.time}</span>
-                                                <span className="ml-2 px-2 py-1 text-xs rounded-full bg-gray-100">
-                                                  {getReceiptType(receipt.type)}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <div className="flex space-x-6">
-                                              <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
-                                              <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
-                                              <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
-                                            </div>
-                                          </div>
+                                  {expandedDays.includes(dayKey) && (
+                                    <div key={dayKey} className="pl-8">
+                                      {/* Существующая информация о дне */}
+                                      
+                                      {/* Добавляем информацию о внесениях и выплатах */}
+                                      {(dayData.deposits > 0 || dayData.withdrawals > 0) && (
+                                        <div className="ml-4 mt-2 text-sm text-gray-500">
+                                          {dayData.deposits > 0 && (
+                                            <span className="mr-4">Внесения: {formatMoney(dayData.deposits)}</span>
+                                          )}
+                                          {dayData.withdrawals > 0 && (
+                                            <span>Выплаты: {formatMoney(dayData.withdrawals)}</span>
+                                          )}
                                         </div>
+                                      )}
 
-                                        {/* Товары */}
-                                        {expandedReceipts.includes(receipt.id) && (
-                                          <div className="pl-8 bg-gray-50 p-4 rounded-lg m-4">
-                                            <div className="space-y-2">
-                                              {receipt.products.map((product) => (
-                                                <div key={product.id} className="flex items-center justify-between p-2 bg-white rounded shadow-sm">
-                                                  <div className="flex-1">
-                                                    <span className="font-medium">{product.name}</span>
-                                                    <span className="ml-2 text-gray-500">x {product.quantity}</span>
-                                                  </div>
-                                                  <div className="flex space-x-6">
-                                                    <span className={`${product.type === 'sale' ? 'text-green-600' : 'text-gray-300'}`}>
-                                                      {product.type === 'sale' ? formatMoney(product.total) : '-'}
-                                                    </span>
-                                                    <span className={`${product.type === 'cancellation' ? 'text-red-600' : 'text-gray-300'}`}>
-                                                      {product.type === 'cancellation' ? formatMoney(product.total) : '-'}
-                                                    </span>
-                                                    <span className={`${product.type === 'return' ? 'text-orange-600' : 'text-gray-300'}`}>
-                                                      {product.type === 'return' ? formatMoney(product.total) : '-'}
+                                      {/* Существующий код для чеков */}
+                                      {dayData.receipts.map(receipt => {
+                                        const receiptTotals = calculateTotals(receipt.products);
+                                        
+                                        return (
+                                          <div key={receipt.id} className="pl-8">
+                                            <div 
+                                              className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                                              onClick={() => toggleReceipt(receipt.id)}
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-4">
+                                                  {expandedReceipts.includes(receipt.id) ? 
+                                                    <ChevronDown className="w-6 h-6 text-gray-400" /> : 
+                                                    <ChevronRight className="w-6 h-6 text-gray-400" />
+                                                  }
+                                                  <div>
+                                                    <span className="font-medium">Чек №{receipt.id}</span>
+                                                    <span className="ml-2 text-gray-500">{receipt.time}</span>
+                                                    <span className="ml-2 px-2 py-1 text-xs rounded-full bg-gray-100">
+                                                      {getReceiptType(receipt.type)}
                                                     </span>
                                                   </div>
                                                 </div>
-                                              ))}
+                                                <div className="flex space-x-6">
+                                                  <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
+                                                  <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
+                                                  <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
+                                                </div>
+                                              </div>
                                             </div>
+
+                                            {/* Товаы */}
+                                            {expandedReceipts.includes(receipt.id) && (
+                                              <div className="pl-8 bg-gray-50 p-4 rounded-lg m-4">
+                                                <div className="space-y-2">
+                                                  {receipt.products.map((product) => (
+                                                    <div key={product.id} className="flex items-center justify-between p-2 bg-white rounded shadow-sm">
+                                                      <div className="flex-1">
+                                                        <span className="font-medium">{product.name}</span>
+                                                        <span className="ml-2 text-gray-500">x {product.quantity}</span>
+                                                      </div>
+                                                      <div className="flex space-x-6">
+                                                        <span className={`${product.type === 'sale' ? 'text-green-600' : 'text-gray-300'}`}>
+                                                          {product.type === 'sale' ? formatMoney(product.total) : '-'}
+                                                        </span>
+                                                        <span className={`${product.type === 'cancellation' ? 'text-red-600' : 'text-gray-300'}`}>
+                                                          {product.type === 'cancellation' ? formatMoney(product.total) : '-'}
+                                                        </span>
+                                                        <span className={`${product.type === 'return' ? 'text-orange-600' : 'text-gray-300'}`}>
+                                                          {product.type === 'return' ? formatMoney(product.total) : '-'}
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
                                           </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
