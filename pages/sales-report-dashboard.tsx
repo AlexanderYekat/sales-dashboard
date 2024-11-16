@@ -378,7 +378,7 @@ export default function SalesReportDashboard() {
 
 
 
-  const getReceiptType = (type: 'sale' | 'cancellation' | 'return') => {
+  const getReceiptType = (type: 'sale' | 'cancellation' | 'return' | 'deposit' | 'withdrawal') => {
 
     switch (type) {
 
@@ -387,6 +387,10 @@ export default function SalesReportDashboard() {
       case 'cancellation': return 'Сторно';
 
       case 'return': return 'Возврат';
+
+      case 'deposit': return 'Внесение';
+
+      case 'withdrawal': return 'Выплата';
 
       default: return 'Продажа';
 
@@ -638,13 +642,20 @@ export default function SalesReportDashboard() {
                                                     <span className="ml-2 px-2 py-1 text-xs rounded-full bg-gray-100">
                                                       {getReceiptType(receipt.type)}
                                                     </span>
+                                                    {(receipt.type === 'deposit' || receipt.type === 'withdrawal') && (
+                                                      <span className="ml-2 font-medium text-blue-600">
+                                                        {formatMoney(receipt.amount)}
+                                                      </span>
+                                                    )}
                                                   </div>
                                                 </div>
-                                                <div className="flex space-x-6">
-                                                  <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
-                                                  <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
-                                                  <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
-                                                </div>
+                                                {!['deposit', 'withdrawal'].includes(receipt.type) && (
+                                                  <div className="flex space-x-6">
+                                                    <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
+                                                    <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
+                                                    <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
+                                                  </div>
+                                                )}
                                               </div>
                                             </div>
 
