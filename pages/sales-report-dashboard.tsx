@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, DollarSign, RefreshCcw, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, RefreshCcw, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Papa from 'papaparse';
 
@@ -86,7 +86,7 @@ interface CsvRow {
   TRANZDATE: string;
   CHEQUENUMBER: string;
   STATE: string;
-  ChequeType: string;
+  CHEQUETYPE: string;
   TRANZTIME: string;
   TRANZTYPE: string;
   ORDERPOS: string;
@@ -103,8 +103,50 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
   const salesData: SalesData = { months: {} };
 
   const parseRussianDate = (dateStr: string) => {
-    const [day, month, year] = dateStr.split('.').map(Number);
-    return new Date(year, month - 1, day);
+    //console.log('⏰ Обработка даты:', dateStr);
+    
+    try {
+      if (!dateStr || typeof dateStr !== 'string') {
+        console.error('❌ Ошибка парсинга даты:');
+        console.log('Некорректная входная строка:', dateStr);
+        return new Date();
+      }
+
+      const parts = dateStr.split('.');
+      if (parts.length !== 3) {
+        console.error('❌ Ошибка парсинга даты:');
+        console.log('Неверный формат даты (должен быть DD.MM.YYYY):', dateStr);
+        return new Date();
+      }
+
+      const [day, month, year] = parts.map(Number);
+      
+      // Проверка валидности компонентов даты
+      if (isNaN(day) || isNaN(month) || isNaN(year) ||
+          day < 1 || day > 31 || month < 1 || month > 12) {
+        console.error('❌ Ошибка парсинга даты:');
+        console.log('Исходная строка даты:', dateStr);
+        console.log('Разбор даты:', { day, month, year });
+        return new Date();
+      }
+
+      const fullYear = year >= 100 ? year : 2000 + year;
+      const date = new Date(fullYear, month - 1, day);
+      
+      if (isNaN(date.getTime())) {
+        console.error('❌ Ошибка парсинга даты:');
+        console.log('Исходная строка даты:', dateStr);
+        console.log('Разбор даты:', { day, month, year });
+        console.log('Полный год:', fullYear);
+        console.log('Созданная дата:', date);
+        return new Date();
+      }
+      
+      return date;
+    } catch (error) {
+      console.error('❌ Ошибка при парсинге даты:', dateStr, error);
+      return new Date();
+    }
   };
 
   const parseRussianNumber = (numStr: string) => {
@@ -113,25 +155,49 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
 
   csvData.forEach(row => {
     // Пропускаем пустые строки или строки с неполными данными
-    if (!row.TRANZDATE || !row.CASHIER) return;
+    if (!row.TRANZDATE || !row.CASHIER) {
+      if (!row.TRANZDATE || !row.CASHIER) {
+        console.log('⚠️ Пропущена строка:', { TRANZDATE: row.TRANZDATE, CASHIER: row.CASHIER });
+        return;
+      }    
+      return;
+    }
+
+    //console.log('📅 Обработка строки CSV:', {
+    //  исходнаяДата: row.TRANZDATE,
+    //  кассир: row.CASHIER
+    //});    
 
     const date = parseRussianDate(row.TRANZDATE);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const dayKey = row.TRANZDATE;
+    const dayKey = formatDateSafe(row.TRANZDATE);
     const cashier = row.CASHIER.trim();
     
+    //console.log('🔄 Обработка даты:', {
+    //  исходнаяДата: row.TRANZDATE,
+    //  обработаннаяДата: dayKey,
+    //  monthKey
+    //});
+
     // Определяем тип операции
     let operationType: 'sale' | 'cancellation' | 'return';
     if (row.TRANZTYPE === '12') {
       operationType = 'cancellation';
-    } else if (row.ChequeType === '1') {
+    } else if (row.CHEQUETYPE === '1') {
       operationType = 'return';
-    } else if (row.ChequeType === '4' || row.ChequeType === '5') {
+    } else if (row.CHEQUETYPE === '4' || row.CHEQUETYPE === '5') {
       // Пропускаем внесения и выплаты
       return;
     } else {
       operationType = 'sale';
     }
+
+    // Добавляем продукт в соответствующий чек
+    const amount = parseRussianNumber(row.SUMM);
+    //const price = row.PRICE ? parseRussianNumber(row.PRICE) : 0;
+    //const quantity = row.QUANTITY ? parseRussianNumber(row.QUANTITY) : 0;
+
+    //console.log('ChequeType:', row.CHEQUETYPE, 'Amount:', amount, 'OperationType:', operationType);
 
     // Инициализируем структуру данных
     if (!salesData.months[monthKey]) {
@@ -154,39 +220,21 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
       };
     }
 
-    // Добавляем продукт в соответствующий чек
-    const amount = parseRussianNumber(row.SUMM);
-    const price = row.PRICE ? parseRussianNumber(row.PRICE) : 0;
-    const quantity = row.QUANTITY ? parseRussianNumber(row.QUANTITY) : 0;
-
-    const receipt = {
+    const receipt: Receipt = {
       id: row.CHEQUENUMBER,
       time: row.TRANZTIME,
       amount: amount,
       type: operationType,
       products: [{
-        id: row.CODE || 'NO_CODE',
-        name: row.NAME || 'Без наименования',
-        quantity: quantity,
-        price: price,
+        id: row.CODE,
+        name: row.NAME,
+        quantity: parseRussianNumber(row.QUANTITY),
+        price: parseRussianNumber(row.PRICE),
         total: amount,
         type: operationType
       }]
     };
 
-    // Обновляем суммы
-    if (operationType === 'sale') {
-      salesData.months[monthKey].cashiers[cashier].sales += amount;
-      salesData.months[monthKey].cashiers[cashier].days[dayKey].sales += amount;
-    } else if (operationType === 'cancellation') {
-      salesData.months[monthKey].cashiers[cashier].cancellations += amount;
-      salesData.months[monthKey].cashiers[cashier].days[dayKey].cancellations += amount;
-    } else {
-      salesData.months[monthKey].cashiers[cashier].returns += amount;
-      salesData.months[monthKey].cashiers[cashier].days[dayKey].returns += amount;
-    }
-
-    // Добавляем чек в день
     const existingReceipt = salesData.months[monthKey].cashiers[cashier].days[dayKey].receipts
       .find(r => r.id === receipt.id);
     
@@ -198,6 +246,36 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
   });
 
   return salesData;
+};
+
+const formatDateSafe = (dateStr: string) => {
+  try {
+    // Проверяем входные данные
+    if (!dateStr || typeof dateStr !== 'string') return dateStr;
+
+    // Разбираем дату
+    const [day, month, year] = dateStr.split('.');
+    if (!day || !month || !year) return dateStr;
+
+    // Создаем дату в правильном формате
+    const date = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+    
+    if (isNaN(date.getTime())) {
+      console.error('❌ Invalid Date в рендере:', {
+        dateStr,
+        day,
+        month,
+        year,
+        date
+      });
+      return dateStr;
+    }
+    
+    return date.toLocaleDateString('ru');
+  } catch (error) {
+    console.error('❌ Ошибка при форматировании даты:', dateStr, error);
+    return dateStr;
+  }
 };
 
 export default function SalesReportDashboard() {
@@ -410,7 +488,7 @@ export default function SalesReportDashboard() {
                   {renderMetricCard(
                     "Продажи",
                     monthTotals.sales,
-                    <DollarSign className="w-6 h-6 text-green-600" />,
+                    <span className="w-6 h-6 text-green-600 font-bold">₽</span>,
                     "text-green-600"
                   )}
                   {renderMetricCard(
@@ -495,7 +573,7 @@ export default function SalesReportDashboard() {
                                           <ChevronDown className="w-6 h-6 text-gray-400" /> : 
                                           <ChevronRight className="w-6 h-6 text-gray-400" />
                                         }
-                                        <span>{new Date(dayKey).toLocaleDateString('ru')}</span>
+                                        <span>{formatDateSafe(dayKey)}</span>
                                       </div>
                                       <div className="flex space-x-6">
                                         <span className="text-green-600">{formatMoney(dayTotals.sales)}</span>
