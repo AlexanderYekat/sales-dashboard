@@ -419,27 +419,22 @@ export default function SalesReportDashboard() {
   // Функция для подсчёта сумм по продуктам
 
   const calculateTotals = (products: Product[]) => {
-
-    return products.reduce((totals, product) => {
-
+    const totals = products.reduce((totals, product) => {
       if (product.type === 'sale') {
-
         totals.sales += product.total;
-
       } else if (product.type === 'cancellation') {
-
+        totals.sales += product.total; // Вычитаем сторно из продаж
         totals.cancellations += product.total;
-
       } else if (product.type === 'return') {
-
         totals.returns += product.total;
-
       }
-
       return totals;
-
     }, { sales: 0, cancellations: 0, returns: 0 });
 
+    // Если сумма продаж стала отрицательной, устанавливаем её в 0
+    totals.sales = Math.max(0, totals.sales);
+    
+    return totals;
   };
 
 
