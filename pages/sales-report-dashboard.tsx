@@ -46,12 +46,12 @@ export default function SalesReportDashboard() {
   const [expandedDays, setExpandedDays] = useState<string[]>([]);
   const [expandedReceipts, setExpandedReceipts] = useState<string[]>([]);
 
-  // Тестовые данные
+  // Тстовые данные
   const testData: SalesData = {
     months: {
       "2023-10": {
         cashiers: {
-          "ivanov": {
+          "Иванов": {
             sales: 150000,
             cancellations: 2000,
             returns: 1500,
@@ -77,11 +77,19 @@ export default function SalesReportDashboard() {
                       },
                       {
                         id: "prod2",
-                        name: "Молоко",
+                        name: "Молоко 3.2%",
                         quantity: 1,
                         price: 80,
                         total: 80,
                         type: "sale"
+                      },
+                      {
+                        id: "prod3",
+                        name: "Сыр Российский",
+                        quantity: 1,
+                        price: 300,
+                        total: 300,
+                        type: "cancellation"
                       }
                     ]
                   },
@@ -89,15 +97,47 @@ export default function SalesReportDashboard() {
                     id: "2",
                     time: "11:30",
                     amount: 1500,
-                    type: "cancellation",
+                    type: "sale",
                     products: [
                       {
-                        id: "prod3",
-                        name: "Сыр",
+                        id: "prod4",
+                        name: "Колбаса Докторская",
+                        quantity: 2,
+                        price: 600,
+                        total: 1200,
+                        type: "sale"
+                      },
+                      {
+                        id: "prod5",
+                        name: "Сок яблочный",
                         quantity: 1,
-                        price: 300,
-                        total: 300,
+                        price: 150,
+                        total: 150,
                         type: "cancellation"
+                      }
+                    ]
+                  },
+                  {
+                    id: "3",
+                    time: "12:45",
+                    amount: 800,
+                    type: "return",
+                    products: [
+                      {
+                        id: "prod6",
+                        name: "Йогурт Клубничный",
+                        quantity: 4,
+                        price: 100,
+                        total: 400,
+                        type: "return"
+                      },
+                      {
+                        id: "prod7",
+                        name: "Печенье Юбилейное",
+                        quantity: 2,
+                        price: 200,
+                        total: 400,
+                        type: "return"
                       }
                     ]
                   }
@@ -105,7 +145,7 @@ export default function SalesReportDashboard() {
               }
             }
           },
-          "petrov": {
+          "Петров": {
             sales: 120000,
             cancellations: 1800,
             returns: 1200,
@@ -114,7 +154,32 @@ export default function SalesReportDashboard() {
                 sales: 40000,
                 cancellations: 800,
                 returns: 400,
-                receipts: []
+                receipts: [
+                  {
+                    id: "4",
+                    time: "09:30",
+                    amount: 3500,
+                    type: "sale",
+                    products: [
+                      {
+                        id: "prod8",
+                        name: "Масло сливочное",
+                        quantity: 2,
+                        price: 200,
+                        total: 400,
+                        type: "sale"
+                      },
+                      {
+                        id: "prod9",
+                        name: "Рыба копченая",
+                        quantity: 1,
+                        price: 2000,
+                        total: 2000,
+                        type: "cancellation"
+                      }
+                    ]
+                  }
+                ]
               }
             }
           }
@@ -154,12 +219,46 @@ export default function SalesReportDashboard() {
     }).format(amount);
   };
 
-  const getOperationType = (type: 'sale' | 'cancellation' | 'return') => {
+  const getReceiptType = (type: 'sale' | 'cancellation' | 'return') => {
+    switch (type) {
+      case 'sale': return 'Продажа';
+      case 'cancellation': return 'Сторно';
+      case 'return': return 'Возврат';
+      default: return 'Продажа';
+    }
+  };
+
+  const getProductOperationType = (type: 'sale' | 'cancellation' | 'return') => {
     switch (type) {
       case 'sale': return 'Продажа';
       case 'cancellation': return 'Сторно';
       case 'return': return 'Возврат';
     }
+  };
+
+  // Функция для подсчёта сумм по продуктам
+  const calculateTotals = (products: Product[]) => {
+    return products.reduce((totals, product) => {
+      if (product.type === 'sale') {
+        totals.sales += product.total;
+      } else if (product.type === 'cancellation') {
+        totals.cancellations += product.total;
+      } else if (product.type === 'return') {
+        totals.returns += product.total;
+      }
+      return totals;
+    }, { sales: 0, cancellations: 0, returns: 0 });
+  };
+
+  // Функция для подсчёта сумм по чекам
+  const calculateReceiptTotals = (receipts: Receipt[]) => {
+    return receipts.reduce((totals, receipt) => {
+      const receiptTotals = calculateTotals(receipt.products);
+      totals.sales += receiptTotals.sales;
+      totals.cancellations += receiptTotals.cancellations;
+      totals.returns += receiptTotals.returns;
+      return totals;
+    }, { sales: 0, cancellations: 0, returns: 0 });
   };
 
   return (
@@ -175,108 +274,134 @@ export default function SalesReportDashboard() {
         </div>
 
         <div className="space-y-2">
-          {Object.entries(testData.months).map(([monthKey, monthData]) => (
-            <div key={monthKey}>
-              {/* Месяц */}
-              <div 
-                className="grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
-                onClick={() => toggleMonth(monthKey)}
-              >
-                <div className="font-medium flex items-center">
-                  {expandedMonths.includes(monthKey) ? <ChevronDown className="w-4 h-4 mr-2" /> : <ChevronRight className="w-4 h-4 mr-2" />}
-                  {new Date(monthKey).toLocaleString('ru', { month: 'long', year: 'numeric' })}
-                </div>
-                <div className="text-green-600">{formatMoney(150000)}</div>
-                <div className="text-red-600">{formatMoney(2000)}</div>
-                <div className="text-orange-600">{formatMoney(1500)}</div>
-              </div>
+          {Object.entries(testData.months).map(([monthKey, monthData]) => {
+            const allReceipts = Object.values(monthData.cashiers).flatMap(cashier => 
+              Object.values(cashier.days).flatMap(day => day.receipts)
+            );
+            const monthTotals = calculateReceiptTotals(allReceipts);
 
-              {/* Кассиры */}
-              {expandedMonths.includes(monthKey) && Object.entries(monthData.cashiers).map(([cashierId, cashierData]) => (
-                <div key={cashierId} className="ml-6">
-                  <div 
-                    className="grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => toggleCashier(cashierId)}
-                  >
-                    <div className="font-medium flex items-center">
-                      {expandedCashiers.includes(cashierId) ? <ChevronDown className="w-4 h-4 mr-2" /> : <ChevronRight className="w-4 h-4 mr-2" />}
-                      {cashierId}
-                    </div>
-                    <div className="text-green-600">{formatMoney(cashierData.sales)}</div>
-                    <div className="text-red-600">{formatMoney(cashierData.cancellations)}</div>
-                    <div className="text-orange-600">{formatMoney(cashierData.returns)}</div>
+            return (
+              <div key={monthKey}>
+                {/* Месяц */}
+                <div 
+                  className="grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
+                  onClick={() => toggleMonth(monthKey)}
+                >
+                  <div className="font-medium flex items-center">
+                    {expandedMonths.includes(monthKey) ? 
+                      <ChevronDown className="w-4 h-4 mr-2" /> : 
+                      <ChevronRight className="w-4 h-4 mr-2" />
+                    }
+                    {new Date(monthKey).toLocaleString('ru', { month: 'long', year: 'numeric' })}
                   </div>
+                  <div className="text-green-600">{formatMoney(monthTotals.sales)}</div>
+                  <div className="text-red-600">{formatMoney(monthTotals.cancellations)}</div>
+                  <div className="text-orange-600">{formatMoney(monthTotals.returns)}</div>
+                </div>
 
-                  {/* Дни */}
-                  {expandedCashiers.includes(cashierId) && Object.entries(cashierData.days).map(([dayKey, dayData]) => (
-                    <div key={dayKey} className="ml-6">
+                {/* Кассиры */}
+                {expandedMonths.includes(monthKey) && Object.entries(monthData.cashiers).map(([cashierId, cashierData]) => {
+                  const cashierTotals = calculateReceiptTotals(
+                    Object.values(cashierData.days).flatMap(day => day.receipts)
+                  );
+
+                  return (
+                    <div key={cashierId} className="ml-6">
                       <div 
                         className="grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
-                        onClick={() => toggleDay(dayKey)}
+                        onClick={() => toggleCashier(cashierId)}
                       >
-                        <div className="font-medium flex items-center">
-                          {expandedDays.includes(dayKey) ? <ChevronDown className="w-4 h-4 mr-2" /> : <ChevronRight className="w-4 h-4 mr-2" />}
-                          {new Date(dayKey).toLocaleDateString('ru')}
+                        <div className="flex items-center">
+                          {expandedCashiers.includes(cashierId) ? 
+                            <ChevronDown className="w-4 h-4 mr-2" /> : 
+                            <ChevronRight className="w-4 h-4 mr-2" />
+                          }
+                          {cashierId}
                         </div>
-                        <div className="text-green-600">{formatMoney(dayData.sales)}</div>
-                        <div className="text-red-600">{formatMoney(dayData.cancellations)}</div>
-                        <div className="text-orange-600">{formatMoney(dayData.returns)}</div>
+                        <div className="text-green-600">{formatMoney(cashierTotals.sales)}</div>
+                        <div className="text-red-600">{formatMoney(cashierTotals.cancellations)}</div>
+                        <div className="text-orange-600">{formatMoney(cashierTotals.returns)}</div>
                       </div>
 
-                      {/* Чеки */}
-                      {expandedDays.includes(dayKey) && dayData.receipts.map((receipt) => (
-                        <div key={receipt.id}>
-                          <div 
-                            className="ml-6 grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
-                            onClick={() => toggleReceipt(receipt.id)}
-                          >
-                            <div className="font-medium flex items-center">
-                              {expandedReceipts.includes(receipt.id) ? 
-                                <ChevronDown className="w-4 h-4 mr-2" /> : 
-                                <ChevronRight className="w-4 h-4 mr-2" />
-                              }
-                              {receipt.time} - Чек №{receipt.id} ({getOperationType(receipt.type)})
+                      {/* Дни */}
+                      {expandedCashiers.includes(cashierId) && Object.entries(cashierData.days).map(([dayKey, dayData]) => {
+                        const dayTotals = calculateReceiptTotals(dayData.receipts);
+                        
+                        return (
+                          <div key={dayKey} className="ml-6">
+                            <div 
+                              className="grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
+                              onClick={() => toggleDay(dayKey)}
+                            >
+                              <div className="flex items-center">
+                                {expandedDays.includes(dayKey) ? 
+                                  <ChevronDown className="w-4 h-4 mr-2" /> : 
+                                  <ChevronRight className="w-4 h-4 mr-2" />
+                                }
+                                {new Date(dayKey).toLocaleDateString('ru')}
+                              </div>
+                              <div className="text-green-600">{formatMoney(dayTotals.sales)}</div>
+                              <div className="text-red-600">{formatMoney(dayTotals.cancellations)}</div>
+                              <div className="text-orange-600">{formatMoney(dayTotals.returns)}</div>
                             </div>
-                            <div className={`
-                              ${receipt.type === 'sale' ? 'text-green-600' : 
-                                receipt.type === 'cancellation' ? 'text-red-600' : 
-                                'text-orange-600'}
-                            `}>
-                              {formatMoney(receipt.amount)}
-                            </div>
-                            <div></div>
-                            <div></div>
-                          </div>
+                            
+                            {/* Чеки */}
+                            {expandedDays.includes(dayKey) && dayData.receipts.map(receipt => {
+                              const receiptTotals = calculateTotals(receipt.products);
+                              
+                              return (
+                                <div key={receipt.id}>
+                                  <div 
+                                    className="ml-6 grid grid-cols-4 gap-4 hover:bg-gray-50 cursor-pointer"
+                                    onClick={() => toggleReceipt(receipt.id)}
+                                  >
+                                    <div className="flex items-center">
+                                      {expandedReceipts.includes(receipt.id) ? 
+                                        <ChevronDown className="w-4 h-4 mr-2" /> : 
+                                        <ChevronRight className="w-4 h-4 mr-2" />
+                                      }
+                                      {receipt.time} - Чек №{receipt.id} ({getReceiptType(receipt.type)})
+                                    </div>
+                                    <div className="text-green-600">
+                                      {formatMoney(receiptTotals.sales)}
+                                    </div>
+                                    <div className="text-red-600">
+                                      {formatMoney(receiptTotals.cancellations)}
+                                    </div>
+                                    <div className="text-orange-600">
+                                      {formatMoney(receiptTotals.returns)}
+                                    </div>
+                                  </div>
 
-                          {/* Товары */}
-                          {expandedReceipts.includes(receipt.id) && receipt.products.map((product) => (
-                            <div key={product.id} className="ml-12 grid grid-cols-4 gap-4 hover:bg-gray-50">
-                              <div className="font-medium">
-                                {product.name} x {product.quantity}
-                              </div>
-                              <div className={`
-                                ${product.type === 'sale' ? 'text-green-600' : 
-                                  product.type === 'cancellation' ? 'text-red-600' : 
-                                  'text-orange-600'}
-                              `}>
-                                {formatMoney(product.total)}
-                              </div>
-                              <div className="text-gray-500">
-                                {formatMoney(product.price)} за ед.
-                              </div>
-                              <div className="text-gray-500">
-                                {getOperationType(product.type)}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
+                                  {/* Товары */}
+                                  {expandedReceipts.includes(receipt.id) && receipt.products.map((product) => (
+                                    <div key={product.id} className="ml-12 grid grid-cols-4 gap-4 hover:bg-gray-50">
+                                      <div className="font-medium">
+                                        {product.name} x {product.quantity}
+                                      </div>
+                                      <div className="text-green-600">
+                                        {product.type === 'sale' ? formatMoney(product.total) : ''}
+                                      </div>
+                                      <div className="text-red-600">
+                                        {product.type === 'cancellation' ? formatMoney(product.total) : ''}
+                                      </div>
+                                      <div className="text-orange-600">
+                                        {product.type === 'return' ? formatMoney(product.total) : ''}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ))}
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
