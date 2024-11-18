@@ -20,6 +20,8 @@ interface Product {
 
   type: OperationType;
 
+  storno: boolean;
+
 }
 
 
@@ -45,7 +47,7 @@ interface DayData {
 
   sales: number;
 
-  cancellations: number;
+  storno: number;
 
   returns: number;
 
@@ -53,7 +55,7 @@ interface DayData {
 
   withdrawals: number;  // выплаты
 
-  invalidOperations: number; // Добавляем поле для недействительных операций
+  cancelOperations: number; // Добавляем поле для отменённых операций
 
   receipts: Receipt[];
 
@@ -64,9 +66,11 @@ interface CashierData {
 
   sales: number;
 
-  cancellations: number;
+  storno: number;
 
   returns: number;
+
+  cancelOperations: number;
 
   days: { [key: string]: DayData };
 
@@ -106,7 +110,7 @@ interface CsvRow {
   SUMMDISCPOS: string;
 }
 
-type OperationType = 'sale' | 'cancellation' | 'return' | 'deposit' | 'withdrawal';
+type OperationType = 'sale' | 'return' | 'deposit' | 'withdrawal';
 
 // Функция для преобразования данных CSV в формат SalesData
 const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
@@ -168,11 +172,16 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
       return;
     }
 
+    if (row.TRANZTYPE === '55' || row.TRANZTYPE === '56') {
+      return;
+    }
+
     const date = parseRussianDate(row.TRANZDATE);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const dayKey = formatDateSafe(row.TRANZDATE);
     const cashier = row.CASHIER.trim();
     const amount = parseRussianNumber(row.SUMM);
+    const storno = row.TRANZTYPE === '12';
 
     // Инициализируем структуру данных если нужно
     if (!salesData.months[monthKey]) {
@@ -181,28 +190,30 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
     if (!salesData.months[monthKey].cashiers[cashier]) {
       salesData.months[monthKey].cashiers[cashier] = {
         sales: 0,
-        cancellations: 0,
+        storno: 0,
         returns: 0,
+        cancelOperations: 0,
         days: {}
       };
     }
     if (!salesData.months[monthKey].cashiers[cashier].days[dayKey]) {
       salesData.months[monthKey].cashiers[cashier].days[dayKey] = {
         sales: 0,
-        cancellations: 0,
+        storno: 0,
         returns: 0,
         deposits: 0,
         withdrawals: 0,
-        invalidOperations: 0,
+        cancelOperations: 0,
         receipts: []
       };
     }
 
     // Определяем тип операции
     let operationType: OperationType;
-    if (row.TRANZTYPE === '12') {
-      operationType = 'cancellation';
-    } else if (row.CHEQUETYPE === '1') {
+    //if (row.TRANZTYPE === '12') {
+    //  operationType = 'cancellation';  
+    //} else if (row.CHEQUETYPE === '1') {
+    if (row.CHEQUETYPE === '1') {
       operationType = 'return';
     } else if (row.CHEQUETYPE === '4') {
       operationType = 'deposit';
@@ -225,7 +236,8 @@ const convertCsvToSalesData = (csvData: CsvRow[]): SalesData => {
         quantity: parseRussianNumber(row.QUANTITY),
         price: parseRussianNumber(row.PRICE),
         total: amount,
-        type: operationType
+        type: operationType,
+        storno: storno
       }]
     };
 
@@ -357,13 +369,13 @@ export default function SalesReportDashboard() {
 
 
 
-  const getReceiptType = (type: 'sale' | 'cancellation' | 'return' | 'deposit' | 'withdrawal') => {
+  const getReceiptType = (type: 'sale' | 'return' | 'deposit' | 'withdrawal') => {
 
     switch (type) {
 
       case 'sale': return 'Продажа';
 
-      case 'cancellation': return 'Сторно';
+      //case 'cancellation': return 'Сторно';
 
       case 'return': return 'Возврат';
 
@@ -379,44 +391,33 @@ export default function SalesReportDashboard() {
 
 
 
-  const getProductOperationType = (type: 'sale' | 'cancellation' | 'return') => {
-
-    switch (type) {
-
-      case 'sale': return 'Продажа';
-
-      case 'cancellation': return 'Сторно';
-
-      case 'return': return 'Возврат';
-
-    }
-
-  };
-
-
-
   // Функция для подсчёта сумм по продуктам
 
   const calculateTotals = (products: Product[], state: string) => {
     const totals = products.reduce((totals, product) => {
-      // Для отменённых чеков (state !== '1') считаем в invalidOperations
+      // Для отменённых чеков (state !== '1') считаем в cancelOperations
       if (state !== '1') {
-        totals.invalidOperations += product.total;
+        totals.cancelOperations += product.total;
         return totals;
       }
 
+      if (product.storno) {
+        totals.storno += product.total;
+      }
+
+      // Продажае
       if (product.type === 'sale') {
         totals.sales += product.total;
-      } else if (product.type === 'cancellation') {
-        totals.sales += product.total;
-        totals.cancellations += product.total;
+      //} else if (product.type === 'cancellation') {
+      //  totals.sales += product.total;
+      //  totals.storno += product.total;
       } else if (product.type === 'return') {
         totals.returns += product.total;
       }
       return totals;
-    }, { sales: 0, cancellations: 0, returns: 0, invalidOperations: 0 });
+    }, { sales: 0, storno: 0, returns: 0, cancelOperations: 0 });
 
-    totals.sales = Math.max(0, totals.sales);
+    //totals.sales = Math.max(0, totals.sales);
     return totals;
   };
 
@@ -426,20 +427,20 @@ export default function SalesReportDashboard() {
 
   const calculateReceiptTotals = (receipts: Receipt[]) => {
     return receipts.reduce((totals, receipt) => {
-      // Если чек недействительный (state !== '1'), добавляем всю сумму в invalidOperations
+      // Если чек недействительный (state !== '1'), добавляем всю сумму в cancelOperations
       if (receipt.state !== '1') {
-        //totals.invalidOperations += Math.abs(receipt.amount); // Добавляем Math.abs для корректного подсчета
-        totals.invalidOperations += receipt.amount; // Добавляем Math.abs для корректного подсчета
+        //totals.cancelOperations += Math.abs(receipt.amount); // Добавляем Math.abs для корректного подсчета
+        totals.cancelOperations += receipt.amount; // Добавляем Math.abs для корректного подсчета
         return totals;
       }
 
       // Для действительных чеков считаем как раньше
       const receiptTotals = calculateTotals(receipt.products, receipt.state);
       totals.sales += receiptTotals.sales;
-      totals.cancellations += receiptTotals.cancellations;
+      totals.storno += receiptTotals.storno;
       totals.returns += receiptTotals.returns;
       return totals;
-    }, { sales: 0, cancellations: 0, returns: 0, invalidOperations: 0 });
+    }, { sales: 0, storno: 0, returns: 0, cancelOperations: 0 });
   };
 
   const formatMoney = (amount: number) => {
@@ -481,16 +482,16 @@ export default function SalesReportDashboard() {
             const monthTotals = calculateReceiptTotals(allReceipts);
 
             // Подсчитываем сумму отмен за месяц
-            const invalidOperationsTotal = Object.values(monthData.cashiers).reduce((total, cashier) => {
+            const cancelOperationsTotal = Object.values(monthData.cashiers).reduce((total, cashier) => {
               return total + Object.values(cashier.days).reduce((dayTotal, day) => {
-                const dayInvalidTotal = day.receipts.reduce((receiptTotal, receipt) => {
+                const dayCancelTotal = day.receipts.reduce((receiptTotal, receipt) => {
                   if (receipt.state !== '1') {
                     //return receiptTotal + Math.abs(receipt.amount);
                     return receiptTotal + receipt.amount;
                   }
                   return receiptTotal;
                 }, 0);
-                return dayTotal + dayInvalidTotal;
+                return dayTotal + dayCancelTotal;
               }, 0);
             }, 0);
 
@@ -505,7 +506,7 @@ export default function SalesReportDashboard() {
                   )}
                   {renderMetricCard(
                     "Сторно",
-                    monthTotals.cancellations,
+                    monthTotals.storno,
                     <XCircle className="w-6 h-6 text-red-600" />,
                     "text-red-600"
                   )}
@@ -517,7 +518,7 @@ export default function SalesReportDashboard() {
                   )}
                   {renderMetricCard(
                     "Отмена",
-                    invalidOperationsTotal,
+                    cancelOperationsTotal,
                     <AlertCircle className="w-6 h-6 text-gray-600" />,
                     "text-gray-600"
                   )}
@@ -569,9 +570,9 @@ export default function SalesReportDashboard() {
                                 </div>
                                 <div className="flex space-x-6">
                                   <span className="text-green-600">{formatMoney(cashierTotals.sales)}</span>
-                                  <span className="text-red-600">{formatMoney(cashierTotals.cancellations)}</span>
+                                  <span className="text-red-600">{formatMoney(cashierTotals.storno)}</span>
                                   <span className="text-orange-600">{formatMoney(cashierTotals.returns)}</span>
-                                  <span className="text-gray-600">{formatMoney(cashierTotals.invalidOperations)}</span>
+                                  <span className="text-gray-600">{formatMoney(cashierTotals.cancelOperations)}</span>
                                 </div>
                               </div>
                             </div>
@@ -596,9 +597,9 @@ export default function SalesReportDashboard() {
                                       </div>
                                       <div className="flex space-x-6">
                                         <span className="text-green-600">{formatMoney(dayTotals.sales)}</span>
-                                        <span className="text-red-600">{formatMoney(dayTotals.cancellations)}</span>
+                                        <span className="text-red-600">{formatMoney(dayTotals.storno)}</span>
                                         <span className="text-orange-600">{formatMoney(dayTotals.returns)}</span>
-                                        <span className="text-gray-600">{formatMoney(dayTotals.invalidOperations)}</span>
+                                        <span className="text-gray-600">{formatMoney(dayTotals.cancelOperations)}</span>
                                       </div>
                                     </div>
                                   </div>
@@ -623,13 +624,13 @@ export default function SalesReportDashboard() {
                                       {/* Существующий код для чеков */}
                                       {dayData.receipts.map(receipt => {
                                         const receiptTotals = calculateTotals(receipt.products, receipt.state);
-                                        const isInvalid = receipt.state !== '1';
+                                        const isCanceled = receipt.state !== '1';
                                         
                                         return (
                                           <div key={receipt.id} className="pl-8">
                                             <div 
                                               className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-                                                isInvalid ? 'bg-red-50' : ''
+                                                isCanceled ? 'bg-red-50' : ''
                                               }`}
                                               onClick={() => toggleReceipt(receipt.id)}
                                             >
@@ -640,16 +641,16 @@ export default function SalesReportDashboard() {
                                                     <ChevronRight className="w-6 h-6 text-gray-400" />
                                                   }
                                                   <div>
-                                                    <span className={`font-medium ${isInvalid ? 'text-red-700' : ''}`}>
+                                                    <span className={`font-medium ${isCanceled ? 'text-red-700' : ''}`}>
                                                       Чек №{receipt.id}
                                                     </span>
                                                     <span className="ml-2 text-gray-500">{receipt.time}</span>
                                                     <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                                                      isInvalid 
+                                                      isCanceled 
                                                         ? 'bg-red-100 text-red-700' 
                                                         : 'bg-gray-100'
                                                     }`}>
-                                                      {receipt.state === '1' ? getReceiptType(receipt.type) : 'Отменённый'}
+                                                      {getReceiptType(receipt.type)} {receipt.state === '1' ? '' : 'Отменённый'}
                                                     </span>
                                                     {(receipt.type === 'deposit' || receipt.type === 'withdrawal') && (
                                                       <span className="ml-2 font-medium text-blue-600">
@@ -661,10 +662,10 @@ export default function SalesReportDashboard() {
                                                 {!['deposit', 'withdrawal'].includes(receipt.type) && (
                                                   <div className="flex space-x-6">
                                                     <span className="text-green-600">{formatMoney(receiptTotals.sales)}</span>
-                                                    <span className="text-red-600">{formatMoney(receiptTotals.cancellations)}</span>
+                                                    <span className="text-red-600">{formatMoney(receiptTotals.storno)}</span>
                                                     <span className="text-orange-600">{formatMoney(receiptTotals.returns)}</span>
                                                     {receipt.state !== '1' && (
-                                                      <span className="text-gray-600">{formatMoney(receiptTotals.invalidOperations)}</span>
+                                                      <span className="text-gray-600">{formatMoney(receiptTotals.cancelOperations)}</span>
                                                     )}
                                                   </div>
                                                 )}
@@ -674,12 +675,12 @@ export default function SalesReportDashboard() {
                                             {/* Товары в чеке тоже подсветим, если чек отменён */}
                                             {expandedReceipts.includes(receipt.id) && (
                                               <div className={`pl-8 ${
-                                                isInvalid ? 'bg-red-50' : 'bg-gray-50'
+                                                isCanceled ? 'bg-red-50' : 'bg-gray-50'
                                               } p-4 rounded-lg m-4`}>
                                                 <div className="space-y-2">
                                                   {receipt.products.map((product) => (
                                                     <div key={product.id} className={`flex items-center justify-between p-2 ${
-                                                      isInvalid ? 'bg-red-50/50' : 'bg-white'
+                                                      isCanceled ? 'bg-red-50/50' : 'bg-white'
                                                     } rounded shadow-sm`}>
                                                       <div className="flex-1">
                                                         <span className="font-medium">{product.name}</span>
@@ -689,8 +690,8 @@ export default function SalesReportDashboard() {
                                                         <span className={`${product.type === 'sale' ? 'text-green-600' : 'text-gray-300'}`}>
                                                           {product.type === 'sale' ? formatMoney(product.total) : '-'}
                                                         </span>
-                                                        <span className={`${product.type === 'cancellation' ? 'text-red-600' : 'text-gray-300'}`}>
-                                                          {product.type === 'cancellation' ? formatMoney(product.total) : '-'}
+                                                        <span className={`${product.storno ? 'text-red-600' : 'text-gray-300'}`}>
+                                                          {product.storno ? formatMoney(product.total) : '-'}
                                                         </span>
                                                         <span className={`${product.type === 'return' ? 'text-orange-600' : 'text-gray-300'}`}>
                                                           {product.type === 'return' ? formatMoney(product.total) : '-'}
